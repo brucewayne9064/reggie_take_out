@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RestController
@@ -24,6 +26,9 @@ import java.util.Map;
 public class UserController {
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
 
     @PostMapping("/sendMsg")
@@ -41,7 +46,10 @@ public class UserController {
             //SMSUtils.sendMessage("瑞吉外卖", "", mobile, validateCode);
 
             //将验证码存入session
-            session.setAttribute(mobile , validateCode);
+            //session.setAttribute(mobile , validateCode);
+
+            //将生成的验证码存入redis，key是手机号，value是验证码，时间是5分钟
+            stringRedisTemplate.opsForValue().set(mobile, validateCode, 5, TimeUnit.MINUTES);
 
             return R.success("手机验证码发送成功");
         }
@@ -60,7 +68,10 @@ public class UserController {
         //获取验证码
         String code = user.get("code").toString();
         //从session中得到手机号和验证码，key是手机号，value是验证码
-        String validateCode = (String) session.getAttribute(mobile);
+//        String validateCode = (String) session.getAttribute(mobile);
+
+        //从redis中得到手机号和验证码，key是手机号，value是验证码
+        String validateCode = stringRedisTemplate.opsForValue().get(mobile);
 
         if(validateCode != null && validateCode.equals(code)){
             //验证码正确
@@ -76,9 +87,22 @@ public class UserController {
                 userService.save(user1);
             }
             session.setAttribute("user", user1.getId());
+
+            //如果用户登录成功，删除redis中的验证码
+            stringRedisTemplate.delete(mobile);
+
             return R.success(user1);
         }
         return R.error("验证码错误");
+    }
+
+    @PostMapping("/loginout")
+    public R<String> logout(HttpSession session){
+        //退出登录，删除session中的用户信息
+        //session.removeAttribute("user");
+
+        session.invalidate(); //销毁session
+        return R.success("退出登录成功");
     }
 
 }

@@ -1,5 +1,6 @@
 package com.itheima.reggie.controller;
 
+import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.itheima.reggie.Dto.DishDto;
@@ -14,10 +15,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.awt.datatransfer.FlavorEvent;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 
@@ -34,6 +38,9 @@ public class DishController {
 
     @Autowired
     private CategoryService categoryService;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
 
     @GetMapping("/page")
@@ -90,6 +97,16 @@ public class DishController {
         log.info("新增菜品:{}",dishDto);
 
         dishService.saveWithFlavors(dishDto);
+
+        //清理所有菜品的缓存数据
+//        Set<String> keys = stringRedisTemplate.keys("dish_*");
+//        stringRedisTemplate.delete(keys);
+
+        //清理当前菜品分类下的缓存数据
+        String key = "dish_" + dishDto.getCategoryId() + "_1";
+        stringRedisTemplate.delete(key);
+
+
         return R.success("新增菜品成功");
 
     }
@@ -109,6 +126,15 @@ public class DishController {
         log.info("修改菜品:{}",dishDto);
 
         dishService.updateWithFlavor(dishDto);
+
+        //清理所有菜品的缓存数据
+//        Set<String> keys = stringRedisTemplate.keys("dish_*");
+//        stringRedisTemplate.delete(keys);
+
+        //清理当前菜品分类下的缓存数据
+        String key = "dish_" + dishDto.getCategoryId() + "_1";
+        stringRedisTemplate.delete(key);
+
         return R.success("修改菜品成功");
     }
 
@@ -127,13 +153,26 @@ public class DishController {
 
     @GetMapping("/list")
     public R<List<DishDto>> list(Dish dish){
+        List<DishDto> Dtolist = null;
+
+        String key = "dish_" + dish.getCategoryId() + "_" + dish.getStatus();
+        //从redis中获取菜品数据
+        Object s = stringRedisTemplate.opsForValue().get(key);
+        Dtolist = JSON.parseArray((String) s, DishDto.class); //将json字符串转换为java对象
+
+        //如果存在，直接返回，不用查询数据库
+        if(Dtolist != null){
+            return R.success(Dtolist);
+        }
+
+
         LambdaQueryWrapper<Dish> lambdaQueryWrapper = new LambdaQueryWrapper<>(); //构造条件构造器
         lambdaQueryWrapper.eq(dish.getCategoryId() != null, Dish::getCategoryId, dish.getCategoryId()); //根据菜品分类id查询
         lambdaQueryWrapper.eq(Dish::getStatus, 1); //只查询状态为1的菜品
         lambdaQueryWrapper.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime); //根据排序字段升序排列，根据更新时间降序排列
         List<Dish> list = dishService.list(lambdaQueryWrapper); //执行查询
 
-        List<DishDto> Dtolist = list.stream().map((item) -> {
+        Dtolist = list.stream().map((item) -> {
 
             DishDto dishDto = new DishDto();
 
@@ -156,6 +195,9 @@ public class DishController {
             return dishDto;
 
         }).collect(Collectors.toList());
+
+        //如果不存在，查询数据库，然后存入redis，然后返回
+        stringRedisTemplate.opsForValue().set(key, JSON.toJSONString(Dtolist), 60, TimeUnit.MINUTES);
 
 
         return R.success(Dtolist);
