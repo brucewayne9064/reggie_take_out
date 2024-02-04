@@ -14,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -80,6 +82,7 @@ public class SetMealController {
 
     //新增套餐
     @PostMapping
+    @CacheEvict(value = "setmealCache", allEntries = true)
     public R<String> save(@RequestBody SetmealDto setmealDto){
         log.info("setmealDto = {}", setmealDto);
         setMealService.saveWithDish(setmealDto);
@@ -88,6 +91,7 @@ public class SetMealController {
 
 
     @DeleteMapping
+    @CacheEvict(value = "setmealCache", allEntries = true)
     public R<String> delete(@RequestParam List<Long> ids){
         // pathvariable是用来接收路径参数的，requestparam是用来接收请求参数的，复杂类型要加@RequestParam，简单类型可以不加
         //请求参数（Request Parameters）：请求参数通常用于GET请求中，附加在URL后面，
@@ -114,7 +118,9 @@ public class SetMealController {
     }
 
 
+
     @GetMapping("/list")
+    @Cacheable(value = "setmealCache", key = "#categoryId + '_' + #status")
     public R<List<Setmeal>> list(Long categoryId, int status){
         log.info("categoryId = {}, status = {}", categoryId, status);
         LambdaQueryWrapper<Setmeal> lambdaQueryWrapper = new LambdaQueryWrapper<>();
